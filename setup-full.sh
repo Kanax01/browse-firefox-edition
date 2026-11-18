@@ -88,10 +88,18 @@ run_bun() {
 }
 
 need_node() {
-  command -v node >/dev/null 2>&1 || die "browse needs Node.js 22 or newer (https://nodejs.org)"
+  if ! command -v node >/dev/null 2>&1; then
+    die "browse needs Node.js 22 or newer and found no node on PATH
+  install one without touching the system Node:
+    curl -fsSL https://fnm.vercel.app/install | bash    # then: fnm install 24
+  or grab a tarball from https://nodejs.org/en/download and put its bin/ first on PATH"
+  fi
   local major
   major="$(node -p 'process.versions.node.split(".")[0]')"
-  [ "$major" -ge 22 ] || die "browse needs Node.js 22 or newer; found $(node -v)"
+  [ "$major" -ge 22 ] || die "browse needs Node.js 22 or newer; found $(node -v) at $(command -v node)
+  install a newer Node without touching the system one:
+    curl -fsSL https://fnm.vercel.app/install | bash    # then: fnm install 24
+  or grab a tarball from https://nodejs.org/en/download and put its bin/ first on PATH"
 }
 
 find_firefox() {
@@ -184,13 +192,19 @@ PY
 
 choose_profile() {
   local name path is_default running pid index=0 mark
+  local want lower_name lower_base
+  want="${PROFILE_ARG,,}"
   PROFILE_INDEX="$(mktemp "${TMPDIR:-/tmp}/browse-profiles-XXXXXX.tsv")"
   while IFS=$'\t' read -r name path is_default running pid; do
     [ -n "$path" ] || continue
     index=$((index + 1))
     if [ "$running" = "1" ]; then mark="open in Firefox, pid $pid"; else mark="closed"; fi
     if [ -n "$PROFILE_ARG" ]; then
-      if [ "$PROFILE_ARG" = "$name" ] || [ "$PROFILE_ARG" = "$path" ] || [ "$PROFILE_ARG" = "$(basename "$path")" ]; then
+      # Firefox profile names are user-visible labels, so match them case-insensitively; paths stay exact.
+      lower_name="${name,,}"
+      lower_base="$(basename "$path")"
+      lower_base="${lower_base,,}"
+      if [ "$PROFILE_ARG" = "$path" ] || [ "$want" = "$lower_name" ] || [ "$want" = "$lower_base" ]; then
         SELECTED_NAME="$name"
         SELECTED_PATH="$path"
         SELECTED_RUNNING="$running"
@@ -399,6 +413,12 @@ install_extension() {
   local firefox dist port log helper result status=0 browser_pid
   firefox="$(find_firefox)"
   dist="$ROOT/dist-firefox"
+
+  # --extension-only skips the project install, so a fresh checkout has no build tooling yet.
+  if [ ! -d "$ROOT/node_modules" ]; then
+    step "Installing build dependencies"
+    (cd "$ROOT" && run_bun install)
+  fi
 
   step "Building the Firefox add-on"
   run_bun run build:firefox
